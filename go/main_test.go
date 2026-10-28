@@ -356,6 +356,69 @@ func TestStatusExpiryDoesNotClearNewerMessage(t *testing.T) {
 	}
 }
 
+func TestDeleteFromTaskForm(t *testing.T) {
+	m := testApp(t)
+	m.taskForm(false)
+	m.inputs[0].SetValue("Informe")
+	m.submitTask()
+	m.taskForm(true)
+	m.inputs[0].SetValue("Cambio sin guardar")
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if m.mode != "confirm" || !strings.Contains(ansi.Strip(m.View()), "Informe") {
+		t.Fatal("missing delete confirmation")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.mode != "form" || m.inputs[0].Value() != "Cambio sin guardar" {
+		t.Fatal("cancel should preserve form")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m.data.Tasks) != 0 || m.mode != "" {
+		t.Fatal("task was not deleted")
+	}
+	data, err := m.store.Load()
+	if err != nil || len(data.Tasks) != 0 {
+		t.Fatalf("delete not persisted: %v", err)
+	}
+}
+
+func TestMouseHoverAndPanelSelection(t *testing.T) {
+	m := testApp(t)
+	m.focus = 0
+	sideW := min(34, max(24, m.width/3))
+	taskX, taskY := sideW+4, 3
+	m.Update(tea.MouseMsg{X: taskX, Y: taskY, Action: tea.MouseActionMotion})
+	if m.hover != 2 || m.focus != 0 {
+		t.Fatalf("hover changed selection: hover=%d focus=%d", m.hover, m.focus)
+	}
+	m.Update(tea.MouseMsg{X: taskX, Y: taskY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.focus != 1 || m.tab != 0 {
+		t.Fatal("task panel not selected")
+	}
+	materialY := 2 + m.taskPanelHeight() + 4
+	innerW := m.width - sideW - 1 - 2
+	colW := (innerW - 1) / 2
+	x := sideW + 2 + colW + 1
+	m.Update(tea.MouseMsg{X: x, Y: materialY, Action: tea.MouseActionMotion})
+	if m.hover != 5 || m.focus != 1 {
+		t.Fatalf("category hover: %d", m.hover)
+	}
+	m.Update(tea.MouseMsg{X: x, Y: materialY, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.focus != 2 || m.category != 1 {
+		t.Fatal("material category not selected")
+	}
+	m.mode = "form"
+	m.Update(tea.MouseMsg{X: 1, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.focus != 2 {
+		t.Fatal("mouse should not affect modal")
+	}
+	m.mode = ""
+	m.Update(tea.MouseMsg{X: 1, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if m.focus != 0 {
+		t.Fatal("subjects panel not selected")
+	}
+}
+
 func TestInvalidTaskAndSaveFailure(t *testing.T) {
 	m := testApp(t)
 	m.taskForm(false)

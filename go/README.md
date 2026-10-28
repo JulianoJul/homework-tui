@@ -26,13 +26,14 @@ Para usar otra carpeta de materias: `go run . -root /ruta/a/materias`. La aplica
 - `1` / `2`: seleccionar el panel de tareas / materiales. Ambos están visibles. `Enter`: editar tarea o abrir archivo.
 - `Ctrl+N` o `n`: crear tarea. En el formulario, `Tab` o las flechas arriba/abajo cambian de campo; en «Materia», «Prioridad» y «Estado», las flechas izquierda/derecha o espacio eligen el valor. `Ctrl+S` o `Enter` guarda y `Esc` cancela. También se puede cambiar la materia y completar una tarea al editar.
 - `Espacio`: completar o reabrir tarea; `c`: mostrar/ocultar completadas; `d` o `Supr`: eliminar con confirmación.
+- Al editar una tarea, `Ctrl+D` abre la confirmación para eliminarla; al cancelar se conserva el formulario.
 - `g`: alternar entre tareas de todas las materias y tareas de la materia seleccionada. Los materiales siguen mostrando la materia seleccionada en el panel izquierdo.
 - Las tareas pendientes con fecha muestran hasta siete círculos, calculados desde el día de creación hasta la entrega; se van vaciando con el tiempo. Al quedar un día o menos aparece un círculo relleno y un aviso rojo. No representan el avance real del trabajo. Las tareas sin fecha o completadas no muestran círculos.
 - `Ctrl+F` o `/`: filtrar la vista actual. `Enter` aplica; `Esc` limpia.
 - `r`, `Ctrl+R` o `F5`: releer materias y materiales; `O` mayúscula: abrir la carpeta de la materia. La aplicación también comprueba la raíz y los archivos de la materia seleccionada cada 3 segundos. Las materias que desaparecen no se borran automáticamente, para conservar sus tareas.
 - `?` o `F1`: ayuda; `Ctrl+Q` o `q`: salir.
 
-Esta versión usa teclado; no requiere controles tipo Vim. Los archivos se abren con `xdg-open` en Linux, usando la aplicación predeterminada del escritorio.
+El ratón permite seleccionar paneles con un clic; al pasar sobre uno, su borde se resalta en aqua, distinto al naranja del panel activo. La selección de filas, formularios y acciones se hace con teclado. Para seleccionar texto en el terminal, normalmente se puede mantener `Shift` (depende del emulador). La captura de movimiento del ratón depende del soporte del terminal. Los archivos se abren con `xdg-open` en Linux, usando la aplicación predeterminada del escritorio.
 
 ## Datos y configuración
 

@@ -52,6 +52,7 @@ type app struct {
 	activityInitialized       bool
 	category                  int // own, teacher, other
 	focus                     int // 0 subjects, 1 tasks, 2 files
+	hover                     int // 0 none, 1 subjects, 2 tasks, 3 materials, 4+ category
 	tab                       int // 0 tasks, 1 files
 	showDone                  bool
 	allTasks                  bool
@@ -70,6 +71,7 @@ type app struct {
 	message                   string
 	messageVersion            uint64
 	confirmID                 string
+	confirmFromForm           bool
 	search                    textinput.Model
 }
 
@@ -111,7 +113,7 @@ func main() {
 	m.search = textinput.New()
 	m.search.Prompt = "Buscar: "
 	m.scan()
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -587,6 +589,25 @@ func (m *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *app) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if m.mode == "" && m.width >= 80 && m.height >= 20 {
+			m.hover = m.panelAt(msg.X, msg.Y)
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && !msg.Shift {
+				switch {
+				case m.hover == 1:
+					m.focus = 0
+				case m.hover == 2:
+					m.focus, m.tab = 1, 0
+				case m.hover >= 3:
+					m.focus, m.tab = 2, 1
+					if m.hover >= 4 && m.category != m.hover-4 {
+						m.category = m.hover - 4
+						m.file, m.fileOffset = 0, 0
+					}
+				}
+			}
+		}
+		return m, nil
 	case refreshTick:
 		m.refresh(false)
 		return m, nextRefresh()
@@ -618,9 +639,17 @@ func (m *app) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.task = clamp(m.task, len(m.tasks()))
 				m.move(0)
-				m.mode = ""
+				if m.confirmFromForm && m.data.Task(m.confirmID) != nil {
+					m.mode = "form"
+				} else {
+					m.mode = ""
+				}
 			} else if key == "n" || key == "esc" {
-				m.mode = ""
+				if m.confirmFromForm {
+					m.mode = "form"
+				} else {
+					m.mode = ""
+				}
 			}
 			return m, nil
 		}
@@ -643,6 +672,11 @@ func (m *app) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "form" {
 			switch key {
+			case "ctrl+d":
+				if m.editing != "" && m.data.Task(m.editing) != nil {
+					m.confirmID, m.confirmFromForm, m.mode = m.editing, true, "confirm"
+				}
+				return m, nil
 			case "esc":
 				m.mode = ""
 				m.message = ""
@@ -779,6 +813,7 @@ func (m *app) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d", "delete":
 			if m.focus == 1 && m.tab == 0 && len(m.tasks()) > 0 {
 				m.confirmID = m.tasks()[m.task].ID
+				m.confirmFromForm = false
 				m.mode = "confirm"
 			}
 		case "c":
@@ -836,7 +871,48 @@ func fit(s string, width int) string {
 	s = ansi.Truncate(s, width, "…")
 	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
 }
-func panel(lines []string, width, height int, focused bool) string {
+
+// panelAt uses the same geometry as View; clicks select panels, never files or tasks.
+func (m *app) panelAt(x, y int) int {
+	bodyH := m.height - 4
+	sideW := min(34, max(24, m.width/3))
+	if y < 2 || y >= 2+bodyH {
+		return 0
+	}
+	if x >= 0 && x < sideW {
+		return 1
+	}
+	mainX := sideW + 1
+	if x < mainX || x >= m.width {
+		return 0
+	}
+	taskH := m.taskPanelHeight()
+	if y < 2+taskH {
+		return 2
+	}
+	fileY := 2 + taskH
+	subY := fileY + 3
+	fileH := bodyH - taskH
+	if y >= subY && y < subY+fileH-4 && m.currentSubject() != nil {
+		innerX := mainX + 1
+		innerW := m.width - mainX - 2
+		count := m.categoryCount()
+		colW := (innerW - (count - 1)) / count
+		for i := 0; i < count; i++ {
+			start := innerX + i*(colW+1)
+			width := colW
+			if i == count-1 {
+				width = innerW - (count - 1) - colW*(count-1)
+			}
+			if x >= start && x < start+width {
+				return 4 + i
+			}
+		}
+	}
+	return 3
+}
+
+func panel(lines []string, width, height int, focused, hovered bool) string {
 	innerW, innerH := width-2, height-2
 	for len(lines) < innerH {
 		lines = append(lines, "")
@@ -848,6 +924,9 @@ func panel(lines []string, width, height int, focused bool) string {
 		lines[i] = fit(lines[i], innerW)
 	}
 	border := gray
+	if hovered {
+		border = aqua
+	}
 	if focused {
 		border = orange
 	}
@@ -870,7 +949,11 @@ func (m *app) View() string {
 			"Tab / flechas     Cambiar panel y seleccionar", "1 / 2             Tareas / Materiales", "g                 Todas las materias / materia actual", "Materiales: ←/→   Cambiar categoría", "Materiales: , / . Cambiar actividad", "Ctrl+N o n        Nueva tarea", "Enter / e         Editar tarea o abrir archivo", "Espacio           Completar o reabrir tarea", "d / Supr          Eliminar tarea (confirmación)", "c                 Mostrar / ocultar completadas", "Ctrl+F o /        Buscar; Esc limpia el filtro", "r / F5            Releer carpetas y archivos", "O                 Abrir carpeta de la materia", "Ctrl+Q o q        Salir", "", "Esc o ? para cerrar"})
 	}
 	if m.mode == "confirm" {
-		return m.modal("ELIMINAR TAREA", []string{"¿Eliminar esta tarea? No se puede deshacer.", "", "S / Enter: confirmar     N / Esc: cancelar"})
+		name := ""
+		if task := m.data.Task(m.confirmID); task != nil {
+			name = ansi.Truncate(task.Title, min(55, m.width-14), "…")
+		}
+		return m.modal("ELIMINAR TAREA", []string{"¿Eliminar esta tarea? No se puede deshacer.", name, "", "S / Enter: confirmar     N / Esc: cancelar"})
 	}
 	if m.mode == "form" {
 		labels := []string{"Título", "Fecha", "Notas"}
@@ -906,6 +989,9 @@ func (m *app) View() string {
 			state = "✓ Completada"
 		}
 		lines = append(lines, label+"◀ "+state+" ▶", "", dimStyle.Render("Tab/↑↓: campo · ←/→/Espacio: elegir"), dimStyle.Render("Ctrl+S/Enter: guardar · Esc: cancelar"))
+		if m.editing != "" {
+			lines = append(lines, dimStyle.Render("Ctrl+D: eliminar tarea"))
+		}
 		if m.message != "" {
 			lines = append(lines, errorStyle.Render(m.message))
 		}
@@ -1063,7 +1149,7 @@ func (m *app) View() string {
 				}
 				lines = append(lines, line)
 			}
-			panels[category] = panel(lines, widths[category], subHeight, m.focus == 2 && m.category == category)
+			panels[category] = panel(lines, widths[category], subHeight, m.focus == 2 && m.category == category, m.hover == 4+category)
 		}
 		var columns []string
 		for i, p := range panels {
@@ -1074,9 +1160,9 @@ func (m *app) View() string {
 		}
 		fileLines = append(fileLines, strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, columns...), "\n")...)
 	}
-	right := lipgloss.JoinVertical(lipgloss.Left, panel(taskLines, mainW, taskH, m.focus == 1), panel(fileLines, mainW, fileH, m.focus == 2))
+	right := lipgloss.JoinVertical(lipgloss.Left, panel(taskLines, mainW, taskH, m.focus == 1, m.hover == 2), panel(fileLines, mainW, fileH, m.focus == 2, m.hover >= 3))
 	header := titleStyle.Render(" ◆ HOMEWORK") + dimStyle.Render("  ·  ") + lipgloss.NewStyle().Foreground(purple).Render(dateutil.FormatHeader(time.Now()))
-	footer := dimStyle.Render(" Tab panel · g todas · Espacio completar · c completadas · Ctrl+N tarea · ? ayuda")
+	footer := dimStyle.Render(" Tab panel · g todas · Espacio completar · d borrar · c completadas · Ctrl+N · ? ayuda")
 	if m.filter != "" {
 		footer = dimStyle.Render(" Filtro: " + m.filter + " · Esc limpia")
 	}
@@ -1095,6 +1181,6 @@ func (m *app) View() string {
 	if files := m.visibleFiles(); m.focus == 2 && m.file < len(files) {
 		location = files[m.file].Rel
 	}
-	view := fit(header, m.width) + "\n" + fit(dimStyle.Render(" Materias y pendientes universitarios"), m.width) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panel(left, sideW, bodyH, m.focus == 0), " ", right) + "\n" + fit(footer, m.width) + "\n" + fit(dimStyle.Render(" "+location), m.width)
+	view := fit(header, m.width) + "\n" + fit(dimStyle.Render(" Materias y pendientes universitarios"), m.width) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panel(left, sideW, bodyH, m.focus == 0, m.hover == 1), " ", right) + "\n" + fit(footer, m.width) + "\n" + fit(dimStyle.Render(" "+location), m.width)
 	return lipgloss.NewStyle().Foreground(fg).Background(bg).Render(view)
 }
