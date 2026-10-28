@@ -1,0 +1,13 @@
+# Go build output and local state
+/go/homework
+/go/*.test
+/go/coverage.out
+
+# Python environments and caches
+__pycache__/
+.venv/
+*.pyc
+
+# Local editor configuration
+.idea/
+.vscode/
